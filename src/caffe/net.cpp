@@ -573,19 +573,24 @@ void Net<Dtype>::CompileNet(const NetParameter& param,
   param_temp2.clear_layer();   // Remove layers
   CompilationRuleTwo(param_temp, &param_temp2);
 
-#ifdef DISABLE_CONV_SUM_FUSION
-  param_compiled->CopyFrom(param_temp2);
-  param_compiled->clear_layer();    // Remove layers
-  CompilationRuleThree(param_temp2, param_compiled);
-#else
-  NetParameter param_temp3;
+  NetParameter param_temp3;  // temporary compiled param
   param_temp3.CopyFrom(param_temp2);
-  param_temp3.clear_layer();
+  param_temp3.clear_layer();   // Remove layers
   CompilationRuleThree(param_temp2, &param_temp3);
 
+#ifdef DISABLE_CONV_SUM_FUSION
   param_compiled->CopyFrom(param_temp3);
+  param_compiled->clear_layer();    // Remove layers
+  CompilationRuleFive(param_temp3, param_compiled);
+#else
+  NetParameter param_temp4;
+  param_temp4.CopyFrom(param_temp3);
+  param_temp4.clear_layer();
+  CompilationRuleFour(param_temp3, &param_temp4);
+
+  param_compiled->CopyFrom(param_temp4);
   param_compiled->clear_layer();
-  CompilationRuleFour(param_temp3, param_compiled);
+  CompilationRuleFive(param_temp4, param_compiled);
 #endif 
 }
 
@@ -951,6 +956,99 @@ void Net<Dtype>::CompilationRuleFour(const NetParameter& param,
   }
 
   return;
+}
+
+
+template <typename Dtype>
+void Net<Dtype>::CompilationRuleFive(const NetParameter& param,
+                                    NetParameter* param_compiled) {
+  std::set<std::string> layers_to_drop;
+  bool use_negative_slope = false;
+  for (int i = 0; i < param.layer_size(); ++i) {
+    LayerParameter* layer_param =
+          (const_cast<NetParameter&>(param)).mutable_layer(i);
+    bool layer_included = true;
+
+    // Optimization rule 5:
+    // - If we are having engine MKLDNN and ReLU layer within a model
+    // and input bottom comes from  Eltwise of engine MKLDNN
+    // then we can remove ReLU layer
+    // and rename Eltwise top blob after deleted ReLU's top
+    // Note: Currently merging of Eltwise and relu layers is feasible
+    // If current layer is Eltwise of MKLDNN engine..
+    if ((layer_param->type().compare("Eltwise") == 0) &&
+        ((layer_param->convolution_param().engine() == ConvolutionParameter_Engine_MKLDNN) ||
+         ((layer_param->convolution_param().engine() == ConvolutionParameter_Engine_DEFAULT) &&
+          (layer_param->engine().compare(0, 6, "MKLDNN") == 0) &&
+          (layer_param->engine().find(":DLA", 6) == string::npos)) ||
+         ((layer_param->convolution_param().engine() == ConvolutionParameter_Engine_DEFAULT) &&
+          (layer_param->engine() == "") &&
+          (param.engine().compare(0, 6, "MKLDNN") == 0 &&
+           param.engine().find(":DLA", 6) == string::npos)))) {
+      std::vector<const LayerParameter*> consumer_layer_params;
+      GetBlobConsumers(consumer_layer_params, layer_param->top(0),
+                       param, i+1 < param.layer_size() ? i+1 : i);
+      const LayerParameter& consumer_layer_param =
+                                    consumer_layer_params.size() > 0 ?
+                                    *(consumer_layer_params[0]) : *layer_param;
+
+      // Consumer layer of blob produced by Eltwise
+      // has to be ReLU layer with one Input Blob
+      if ((consumer_layer_param.type().compare("ReLU") == 0) &&
+          ((consumer_layer_param.relu_param().engine() == ReLUParameter_Engine_MKLDNN) ||
+           ((consumer_layer_param.relu_param().engine() == ReLUParameter_Engine_DEFAULT) &&
+            (consumer_layer_param.engine().compare(0, 6, "MKLDNN") == 0 &&
+             consumer_layer_param.engine().find(":DLA", 6) == string::npos)) ||
+           ((consumer_layer_param.relu_param().engine() == ReLUParameter_Engine_DEFAULT) &&
+            (consumer_layer_param.engine() == "") &&
+            (param.engine().compare(0, 6, "MKLDNN") == 0 &&
+             param.engine().find(":DLA", 6) == string::npos)))) {
+        string& convolution_top_blob_name =
+            const_cast<string&>(layer_param->top(0));
+
+        if(param.state().phase() == TEST) {
+          const string& scale_top_blob_name = consumer_layer_param.top(0);
+          // Mark Consumer layer (its name) as the one marked for dropping
+          layers_to_drop.insert(consumer_layer_param.name());
+
+          // Replace Convolution top name with ReLU top name
+          eltwise_top_blob_name.resize(scale_top_blob_name.size());
+          eltwise_top_blob_name.replace(0,
+                                          scale_top_blob_name.size(),
+                                          scale_top_blob_name);
+        }
+        float negative_slope1 =
+                  consumer_layer_param.relu_param().negative_slope();
+        if (negative_slope1 != 0) {
+            use_negative_slope = true;
+        } else {
+            layer_param->mutable_convolution_param()->set_relu(true);
+            layer_param->mutable_convolution_param()->set_negative_slope(0);
+        }
+        if(param.state().phase() == TRAIN && !use_negative_slope) {
+          if(i+1 < param.layer_size()) {
+            LayerParameter* relu_layer_param =
+              (const_cast<NetParameter&>(param)).mutable_layer(i+1);
+            relu_layer_param->mutable_relu_param()->set_fuse(true);
+          }
+        }
+      }
+    }
+
+    if(param.state().phase() == TEST && !use_negative_slope) {
+      if (layers_to_drop.find(layer_param->name()) != layers_to_drop.end()) {
+        LOG_IF(INFO, Caffe::root_solver()) << "Dropped layer: "
+               << layer_param->name() << std::endl;
+        layer_included = false;
+        // Remove dropped layer from the list of layers to be dropped
+        layers_to_drop.erase(layers_to_drop.find(layer_param->name()));
+      }
+    }
+
+    if (layer_included) {
+      param_compiled->add_layer()->CopyFrom(*layer_param);
+    }
+  }
 }
 
 template <typename Dtype>
