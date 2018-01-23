@@ -41,6 +41,7 @@ function build_caffe_gcc
 
     if [ $is_multinode_ -eq 1 ]; then
         echo "USE_MLSL := 1" >> Makefile.config
+        echo "ALLOW_LMDB_NOLOCK := 1" >> Makefile.config
 
         if [ -z $MLSL_ROOT ]; then
             mlslvars_sh=`find external/mlsl/ -name mlslvars.sh`
@@ -67,6 +68,7 @@ function build_caffe_gcc
     fi
 
     make -j 8
+    make pycaffe
 }
 
 function download_build_boost
@@ -102,7 +104,7 @@ function build_caffe_icc
     is_multinode_=$1
     cmake_params="-DCPU_ONLY=1 -DBOOST_ROOT=$boost_root"
     if [ $is_multinode_ -eq 1 ]; then
-        cmake_params+=" -DUSE_MLSL=1"
+        cmake_params+=" -DUSE_MLSL=1 -DALLOW_LMDB_NOLOCK=1"
     fi
 
     if [ $is_layer_timing -eq 1 ]; then
@@ -203,6 +205,12 @@ do
         exit 1
     fi
 done
+
+# Fix the compilation failure if icc environment is set.
+# During building caffe, MKL library will be downloaded,
+# and the environment variable will be set.
+unset MKLROOT
+unset CPATH
 
 echo "Build Intel Caffe by $compiler..."
 if [ "$compiler" == "icc" ]; then

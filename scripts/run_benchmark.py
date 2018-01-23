@@ -97,7 +97,7 @@ class CaffeBenchmark(object):
         src_model_file = "/".join([self.model_path, model, prototxt_file])
         if not os.path.isfile(src_model_file):
             logging.exception("template model file {} doesn't exist.".format(src_model_file))
-        batch_size_pattern = re.compile(".*shape:.*") if self.dummy_data_use else re.compile(".*batch size:.*")
+        batch_size_pattern = re.compile(".*shape:.*") if self.dummy_data_use else re.compile("^\s+batch_size:.*")
         # we only care about train phase batch size for benchmarking
         batch_size_cnt = 2 if self.dummy_data_use else 1
         if model not in self.bkm_batch_size or self.cpu_model not in self.bkm_batch_size[model]:
@@ -108,7 +108,7 @@ class CaffeBenchmark(object):
             for line in src_f.readlines():
                 if re.match(batch_size_pattern, line) and cnt < batch_size_cnt:
                    #change batch size
-                    re.sub("[0-9]+", new_batch_size, line, count = 1)
+                    line = re.sub("[0-9]+", new_batch_size, line, count = 1)
                     cnt += 1
                 dst_f.write(line) 
         return dst_model_file
@@ -200,7 +200,7 @@ class CaffeBenchmark(object):
                     if re.match(average_fwd_bwd_time_pattern, line):
                         average_time = line.split()[-2]
             if average_time == "": 
-                logging.exception("Error: running intelcaffe failed, please check logs under: {}".format(result_file))
+                logging.exception("Error: can't find average forward-backward time within logs, please check logs under: {}".format(result_file))
             average_time = float(average_time)
         else:
             start_iteration = 100
@@ -228,7 +228,7 @@ class CaffeBenchmark(object):
         with open(log_file, 'r') as f:
             batch_size_pattern_time = re.compile(".*SetMinibatchSize.*")
             batch_size_pattern_dummy = re.compile(".*dim:.*")
-            batch_size_pattern_real = re.compile(".*batch_size:.*")
+            batch_size_pattern_real = re.compile("^\s+batch_size:.*")
             batch_size = ''
             for line in f.readlines():
                 if re.match(batch_size_pattern_time, line) or re.match(batch_size_pattern_real, line) or re.match(batch_size_pattern_dummy, line):

@@ -133,9 +133,11 @@ void MKLDNNEltwiseLayer<Dtype>::InitEltwiseFwd(const vector<Blob<Dtype>*>& botto
     int32_t iw = this->width_;
     int32_t ih = this->height_;
     int32_t ic = this->channels_;
+    
+	mkldnn::primitive_attr attr;
 
     // If we just do simple adding, scale is 1.0 for all inputs we have
-    std::vector<double> scale(num_bottoms_, 1.0);
+    std::vector<float> scale(num_bottoms_, 1.0);
     //Eltwise layer is supporting multiplication coefficient and this scale value can be used for that.
     for (int i = 0; i < num_bottoms_; ++i) 
     {
@@ -187,8 +189,24 @@ void MKLDNNEltwiseLayer<Dtype>::InitEltwiseFwd(const vector<Blob<Dtype>*>& botto
     std::string subengines = this->layer_param_.engine();
     if (subengines == "" || subengines == "MKLDNN")
         subengines = "MKLDNN:CPU";
-    eltwiseFwd_pd.reset(new sum::primitive_desc({{n, ic, ih, iw}, mpcsn, memory::format::any}, scale, bottom_data_mpd));
-    CHECK(eltwiseFwd_pd);
+    
+    mkldnn::post_ops ops;
+	bool relu = this->layer_param_.eltwise_param().relu();
+	if(relu)
+	{
+		Dtype alpha = this->layer_param_.eltwise_param().negative_slope();
+		float relu_scale = 1.0f;
+		float beta = 0.0f;
+		ops.append_eltwise(1.f, eltwise_relu, 0.f, 0.f);
+		// ops.append_eltwise(relu_scale, eltwise_relu, alpha, beta);
+		attr.set_post_ops(ops);
+	}
+	
+ 	if(relu)	
+		eltwiseFwd_pd.reset(new sum::primitive_desc({{n, ic, ih, iw}, mpcsn, memory::format::any}, scale, bottom_data_mpd, attr));
+    else
+		eltwiseFwd_pd.reset(new sum::primitive_desc({{n, ic, ih, iw}, mpcsn, memory::format::any}, scale, bottom_data_mpd));
+	CHECK(eltwiseFwd_pd);
 
     shared_ptr<memory::primitive_desc> prv_top_data_mpd(new memory::primitive_desc(eltwiseFwd_pd->dst_primitive_desc()));
 
@@ -196,8 +214,9 @@ void MKLDNNEltwiseLayer<Dtype>::InitEltwiseFwd(const vector<Blob<Dtype>*>& botto
     fwd_top_data->name = "fwd_top_data   @ " + this->layer_param_.name();
     fwd_top_data_memory = fwd_top_data->create_output_memory();
 
-    eltwiseFwd.reset(new sum(*eltwiseFwd_pd, fwd_bottom_data_primitives_at_, *fwd_top_data_memory));
     
+    eltwiseFwd.reset(new sum(*eltwiseFwd_pd, fwd_bottom_data_primitives_at_, *fwd_top_data_memory));
+		
     for (auto i = 0; i < num_bottoms_; i++)
     {
         //fwd_bottom_data[i]->set_mkldnn_primitive(eltwiseFwd);   //Wrong passed primitive! (TODO: Checking!)
