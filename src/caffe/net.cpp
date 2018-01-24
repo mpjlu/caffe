@@ -563,7 +563,7 @@ void Net<Dtype>::CompileNet(const NetParameter& param,
   NetParameter param_temp[2];
   void (*CompileRules[]) (const NetParameter& param, NetParameter* param_compiled) =
     {RemoveBNScale<Dtype>, CompilationRuleRemoveScale, CompilationRuleConvReluFusion,
-    CompilationRuleFuseBnRelu, CompilationRuleBNInplace, CompilationRuleSparse, CompilationRuleConvSumFusion};
+    CompilationRuleFuseBnRelu, CompilationRuleBNInplace, CompilationRuleSparse, CompilationRuleConvSumFusion, CompilationEltwiseReluFusion};
 
   bool disabled[NUM_OF_RULES] = {false};
 
@@ -573,35 +573,27 @@ void Net<Dtype>::CompileNet(const NetParameter& param,
 #ifdef DISABLE_BN_RELU_FUSION
   disabled[COMPILE_BN_RELU_FUSION_INDEX] = true;
 #endif
-  NetParameter param_temp;  // temporary compiled param
-  param_temp.CopyFrom(param_temp0);
-  param_temp.clear_layer();    // Remove layers
-  CompilationRuleOne(param_temp0, &param_temp);
-
-  NetParameter param_temp2;  // temporary compiled param
-  param_temp2.CopyFrom(param_temp);
-  param_temp2.clear_layer();   // Remove layers
-  CompilationRuleTwo(param_temp, &param_temp2);
-
-  NetParameter param_temp3;  // temporary compiled param
-  param_temp3.CopyFrom(param_temp2);
-  param_temp3.clear_layer();   // Remove layers
-  CompilationRuleThree(param_temp2, &param_temp3);
-
 #ifdef DISABLE_CONV_SUM_FUSION
-  param_compiled->CopyFrom(param_temp3);
-  param_compiled->clear_layer();    // Remove layers
-  CompilationRuleFive(param_temp3, param_compiled);
-#else
-  NetParameter param_temp4;
-  param_temp4.CopyFrom(param_temp3);
-  param_temp4.clear_layer();
-  CompilationRuleFour(param_temp3, &param_temp4);
+  disabled[COMPILE_CONV_SUM_FUSION_INDEX] = true;
+#endif
+#ifdef DISABLE_SPARSE
+  disabled[COMPILE_SPARSE_INDEX] = true;
+#endif
 
-  param_compiled->CopyFrom(param_temp4);
-  param_compiled->clear_layer();
-  CompilationRuleFive(param_temp4, param_compiled);
-#endif 
+  param_temp[current].CopyFrom(param);
+  for (i = 0; i < NUM_OF_RULES; i++)
+    if (!disabled[i]) {
+      param_temp[1 - current].CopyFrom(param_temp[current]);
+      param_temp[1 - current].clear_layer();   // Remove layers
+      (*CompileRules[i]) (param_temp[current], &param_temp[1 - current]);
+      current = 1 - current;
+    }
+  param_compiled->CopyFrom(param_temp[current]);
+  #undef NUM_OF_RULES
+  #undef COMPILE_BN_FOLDING_INDEX
+  #undef COMPILE_BN_RELU_FUSION_INDEX
+  #undef COMPILE_CONV_SUM_FUSION_INDEX
+  #undef COMPILE_CONV_SUM_FUSION_INDEX
 }
 
 template <typename Dtype>
@@ -970,7 +962,7 @@ void Net<Dtype>::CompilationRuleConvSumFusion(const NetParameter& param,
 
 
 template <typename Dtype>
-void Net<Dtype>::CompilationRuleFive(const NetParameter& param,
+void Net<Dtype>::CompilationEltwiseReluFusion(const NetParameter& param,
                                     NetParameter* param_compiled) {
   std::set<std::string> layers_to_drop;
   bool use_negative_slope = false;
@@ -1061,6 +1053,7 @@ void Net<Dtype>::CompilationRuleFive(const NetParameter& param,
     }
   }
 }
+
 
 template <typename Dtype>
 void Net<Dtype>::CompilationRuleSparse(const NetParameter& param,

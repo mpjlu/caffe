@@ -1264,7 +1264,7 @@ message EltwiseParameter {
     MKLDNN = 4;
   }
   optional Engine engine = 4 [default = DEFAULT];
-  optional bool relu = 5 [default = true];
+  optional bool relu = 5 [default = false];
   optional float negative_slope = 6 [default = 0];
 }
 

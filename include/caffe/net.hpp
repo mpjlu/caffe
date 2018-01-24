@@ -330,7 +330,7 @@ class Net {
   /**
   * @brief This is rule analyze for elt/relu fusion.
   */
-  static void CompilationRuleFive(const NetParameter& param,
+  static void CompilationEltwiseReluFusion(const NetParameter& param,
                              NetParameter* param_compiled);
   
    /**

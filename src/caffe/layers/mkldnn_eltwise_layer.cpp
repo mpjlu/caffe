@@ -197,8 +197,7 @@ void MKLDNNEltwiseLayer<Dtype>::InitEltwiseFwd(const vector<Blob<Dtype>*>& botto
 		Dtype alpha = this->layer_param_.eltwise_param().negative_slope();
 		float relu_scale = 1.0f;
 		float beta = 0.0f;
-		ops.append_eltwise(1.f, eltwise_relu, 0.f, 0.f);
-		// ops.append_eltwise(relu_scale, eltwise_relu, alpha, beta);
+		ops.append_eltwise(relu_scale, eltwise_relu, alpha, beta);
 		attr.set_post_ops(ops);
 	}
 	
