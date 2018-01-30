@@ -133,6 +133,7 @@ void MKLDNNEltwiseLayer<Dtype>::InitEltwiseFwd(const vector<Blob<Dtype>*>& botto
     int32_t iw = this->width_;
     int32_t ih = this->height_;
     int32_t ic = this->channels_;
+	mkldnn::primitive_attr attr;
 
     // If we just do simple adding, scale is 1.0 for all inputs we have
     std::vector<float> scale(num_bottoms_, 1.0);
@@ -187,7 +188,23 @@ void MKLDNNEltwiseLayer<Dtype>::InitEltwiseFwd(const vector<Blob<Dtype>*>& botto
     std::string subengines = this->layer_param_.engine();
     if (subengines == "" || subengines == "MKLDNN")
         subengines = "MKLDNN:CPU";
-    eltwiseFwd_pd.reset(new sum::primitive_desc({{n, ic, ih, iw}, mpcsn, memory::format::any}, scale, bottom_data_mpd));
+	
+    mkldnn::post_ops ops;
+	bool relu = this->layer_param_.eltwise_param().relu();
+	if(relu)
+	{
+		Dtype alpha = this->layer_param_.eltwise_param().negative_slope();
+		float relu_scale = 1.0f;
+		float beta = 0.0f;
+		ops.append_eltwise(relu_scale, eltwise_relu, alpha, beta);
+		attr.set_post_ops(ops);
+	}
+	
+ 	if(relu)	
+		eltwiseFwd_pd.reset(new sum::primitive_desc({{n, ic, ih, iw}, mpcsn, memory::format::any}, scale, bottom_data_mpd, attr));
+    else
+		eltwiseFwd_pd.reset(new sum::primitive_desc({{n, ic, ih, iw}, mpcsn, memory::format::any}, scale, bottom_data_mpd));
+
     CHECK(eltwiseFwd_pd);
 
     shared_ptr<memory::primitive_desc> prv_top_data_mpd(new memory::primitive_desc(eltwiseFwd_pd->dst_primitive_desc()));
