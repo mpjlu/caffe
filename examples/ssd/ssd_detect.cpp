@@ -25,6 +25,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <iostream>
+#include <chrono>
+#include <ctime> 
 
 #ifdef USE_OPENCV
 using namespace caffe;  // NOLINT(build/namespaces)
@@ -287,9 +290,16 @@ int main(int argc, char** argv) {
   std::string file;
   while (infile >> file) {
     if (file_type == "image") {
+      auto start = std::chrono::system_clock::now();
       cv::Mat img = cv::imread(file, -1);
       CHECK(!img.empty()) << "Unable to decode image " << file;
+      auto end_read = std::chrono::system_clock::now();
       std::vector<vector<float> > detections = detector.Detect(img);
+      auto end_detect = std::chrono::system_clock::now();
+      std::chrono::duration<double> dur1 = end_detect - end_read;
+      std::chrono::duration<double> dur2 = end_read - start;
+      std::cout<<"Read Image time:"<<dur2.count()<<std::endl;
+      std::cout<<"Detection time:"<<dur1.count()<<std::endl;
 
       /* Print the detection results. */
       for (int i = 0; i < detections.size(); ++i) {
@@ -315,14 +325,20 @@ int main(int argc, char** argv) {
       cv::Mat img;
       int frame_count = 0;
       while (true) {
+        auto start = std::chrono::system_clock::now();
         bool success = cap.read(img);
+        auto end_read = std::chrono::system_clock::now();
         if (!success) {
           LOG(INFO) << "Process " << frame_count << " frames from " << file;
           break;
         }
         CHECK(!img.empty()) << "Error when read frame";
         std::vector<vector<float> > detections = detector.Detect(img);
-
+        auto end_detect = std::chrono::system_clock::now();
+        std::chrono::duration<double> dur1 = end_detect - end_read;
+        std::chrono::duration<double> dur2 = end_read - start;
+	std::cout<<"Read Image time:"<<dur2.count()<<std::endl;
+	std::cout<<"Detection time:"<<dur1.count()<<std::endl;
         /* Print the detection results. */
         for (int i = 0; i < detections.size(); ++i) {
           const vector<float>& d = detections[i];

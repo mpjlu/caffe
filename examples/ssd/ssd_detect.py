@@ -10,7 +10,7 @@ import argparse
 import numpy as np
 from PIL import Image, ImageDraw
 # Make sure that caffe is on the python path:
-caffe_root = './'
+caffe_root = '/data/caffe/'
 os.chdir(caffe_root)
 sys.path.insert(0, os.path.join(caffe_root, 'python'))
 import caffe
@@ -26,7 +26,7 @@ def get_labelname(labelmap, labels):
         labels = [labels]
     for label in labels:
         found = False
-        for i in xrange(0, num_labels):
+        for i in range(0, num_labels):
             if label == labelmap.item[i].label:
                 found = True
                 labelnames.append(labelmap.item[i].display_name)
@@ -94,7 +94,7 @@ class CaffeDetection:
         top_ymax = det_ymax[top_indices]
 
         result = []
-        for i in xrange(min(topn, top_conf.shape[0])):
+        for i in range(min(topn, top_conf.shape[0])):
             xmin = top_xmin[i] # xmin = int(round(top_xmin[i] * image.shape[1]))
             ymin = top_ymin[i] # ymin = int(round(top_ymin[i] * image.shape[0]))
             xmax = top_xmax[i] # xmax = int(round(top_xmax[i] * image.shape[1]))
@@ -110,13 +110,20 @@ def main(args):
     detection = CaffeDetection(args.gpu_id,
                                args.model_def, args.model_weights,
                                args.image_resize, args.labelmap_file)
-    result = detection.detect(args.image_file)
-    print result
+    files = [os.path.join(path, name) for path, _, files in os.walk(args.image_file) for name in files]
+    import time
+    for image in files:
+        start = time.time()
+        result = detection.detect(image)
+        dur = time.time() - start
+        print("detection Time: {}".format(dur))
+    #result = detection.detect(args.image_file)
+    #    print (result)
 
     img = Image.open(args.image_file)
     draw = ImageDraw.Draw(img)
     width, height = img.size
-    print width, height
+    print (width, height)
     for item in result:
         xmin = int(round(item[0] * width))
         ymin = int(round(item[1] * height))
@@ -124,9 +131,9 @@ def main(args):
         ymax = int(round(item[3] * height))
         draw.rectangle([xmin, ymin, xmax, ymax], outline=(255, 0, 0))
         draw.text([xmin, ymin], item[-1] + str(item[-2]), (0, 0, 255))
-        print item
-        print [xmin, ymin, xmax, ymax]
-        print [xmin, ymin], item[-1]
+        print (item)
+        print ([xmin, ymin, xmax, ymax])
+        print ([xmin, ymin], item[-1])
     img.save('detect_result.jpg')
 
 
@@ -142,7 +149,8 @@ def parse_args():
     parser.add_argument('--model_weights',
                         default='models/VGGNet/VOC0712/SSD_300x300/'
                         'VGG_VOC0712_SSD_300x300_iter_120000.caffemodel')
-    parser.add_argument('--image_file', default='examples/images/fish-bike.jpg')
+    parser.add_argument('--image_file', default='/data/100jpg')
+    #parser.add_argument('--image_file', default='examples/images/fish-bike.jpg')
     return parser.parse_args()
 
 if __name__ == '__main__':
